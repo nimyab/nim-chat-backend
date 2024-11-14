@@ -17,10 +17,12 @@ import {
   SendMessageResponse,
 } from './types';
 import { v4 as uuidv4 } from 'uuid';
-import { Logger } from '@nestjs/common';
+import { Logger, UseFilters } from '@nestjs/common';
 import { ExitOnChatRequest } from './dtos/exit-on-chat.dto';
+import { WebSocketExceptionFilter } from './websocket.filter';
 
 @WebSocketGateway({ cors: { origin: '*' } })
+@UseFilters(WebSocketExceptionFilter)
 export class WebsocketController implements NestGateway {
   @WebSocketServer()
   private server: Server;
@@ -54,6 +56,7 @@ export class WebsocketController implements NestGateway {
       sender: client.id,
       text,
     } as SendMessageResponse;
+    this.logger.log(`${client.id} send message to chat with ${chatId} id`);
     chat.forEach((socketId) => {
       this.server.to(socketId).emit(SOCKET_EVENTS.SEND_MESSAGE, message);
     });
@@ -94,16 +97,22 @@ export class WebsocketController implements NestGateway {
       return true;
     });
     if (!partner) {
+      this.logger.log(`socket with ${client.id} id not found partner`);
       this.searcherQueue.push({
         clientSocketId: client.id,
         searchParams: data,
       });
+      this.logger.log(`socket with ${client.id} id add to searcherQueue`);
       return;
     }
 
     const newChat = [client.id, partner.clientSocketId];
     const chatId = uuidv4();
     this.chats.set(chatId, newChat);
+
+    this.logger.log(
+      `socket with ${client.id} id found partner. create chat with ${chatId} id. partners is ${newChat}`,
+    );
 
     newChat.forEach((socketId) => {
       this.server
@@ -117,6 +126,7 @@ export class WebsocketController implements NestGateway {
     this.searcherQueue = this.searcherQueue.filter(
       (searcher) => searcher.clientSocketId !== client.id,
     );
+    this.logger.log(`${client.id} stop search`);
     client.emit(SOCKET_EVENTS.STOP_SEARCH_CHAT, { message: 'success' });
   }
 
@@ -124,10 +134,14 @@ export class WebsocketController implements NestGateway {
   foundChat(@ConnectedSocket() client: Socket) {}
 
   @SubscribeMessage(SOCKET_EVENTS.EXIT_ON_CHAT)
-  exitOnChat(@WebsocketBody() data: ExitOnChatRequest) {
+  exitOnChat(
+    @ConnectedSocket() client: Socket,
+    @WebsocketBody() data: ExitOnChatRequest,
+  ) {
     const { chatId } = data;
     const chat = this.chats.get(chatId);
     if (!chat) return;
+    this.logger.log(`${client.id} stop search`);
     chat.forEach((socketId) => {
       this.server
         .to(socketId)

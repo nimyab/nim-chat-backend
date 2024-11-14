@@ -18,6 +18,6 @@ export class SearchChatRequestDto {
   yourAgeChatIndex: number;
 
   @IsInt({ each: true })
-  @Min(0)
+  @Min(0, { each: true })
   partnerAgeChatIndexes: number[];
 }
